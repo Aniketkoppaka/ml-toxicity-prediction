@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToxPredict — ML Toxicity Analyzer</title>
+<meta name="description" content="ToxPredict: Predict drug toxicity probabilities across 10 Tox21 biological assay targets using an XGB + LGB + ET ensemble model.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── CSS Variables ── */
+:root {
+  --bg-primary: #080c10;
+  --bg-panel: #0d1117;
+  --bg-card: #111820;
+  --bg-input: #0d1117;
+  --border: #1c2a35;
+  --border-focus: #2a3f4e;
+  --text-primary: #c9d5e0;
+  --text-secondary: #6b7f8e;
+  --text-muted: #3d5060;
+  --accent: #00e5ff;
+  --accent-dim: rgba(0, 229, 255, 0.08);
+  --green: #33c97a;
+  --amber: #f0b429;
+  --red: #e85555;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --font-sans: 'IBM Plex Sans', sans-serif;
+  --grid-color: rgba(28, 42, 53, 0.25);
+}
+
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size: 40px 40px;
+  min-height: 100vh;
+}
+
+/* ── Header ── */
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 48px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+#header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#wordmark {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 2px;
+  color: var(--text-primary);
+}
+
+#header-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+}
+
+#header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+#rdkit-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#rdkit-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+#rdkit-dot.ready {
+  background: var(--green);
+  animation: none;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+#header-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+#header-meta span {
+  border-left: 1px solid var(--border);
+  padding-left: 16px;
+}
+
+/* ── Main Container ── */
+#main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+/* ── Input Panel ── */
+#input-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+#input-row {
+  display: flex;
+  gap: 12px;
+}
+
+#smiles-input {
+  flex: 1;
+  height: 42px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  padding: 0 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+#smiles-input::placeholder {
+  color: var(--text-muted);
+}
+
+#smiles-input:focus {
+  border-color: var(--border-focus);
+}
+
+#smiles-input.error {
+  border-color: var(--red);
+}
+
+#analyze-btn {
+  height: 42px;
+  padding: 0 28px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 1px;
+  border: none;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+#analyze-btn:hover { opacity: 0.85; }
+#analyze-btn:active { opacity: 0.7; }
+#analyze-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+#error-msg {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--red);
+  margin-top: 8px;
+  display: none;
+}
+
+#error-msg.visible { display: block; }
+
+#chips-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#status-line {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 10px;
+  min-height: 16px;
+}
+
+/* ── Summary Bar ── */
+#summary-bar {
+  display: none;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  align-items: center;
+  gap: 0;
+}
+
+#summary-bar.visible {
+  display: flex;
+  animation: fadeInUp 0.35s ease-out both;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.stat-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 24px;
+  min-width: 100px;
+}
+
+.stat-block:not(:last-of-type) {
+  border-right: 1px solid var(--border);
+}
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 22px;
+}
+
+.stat-value.red { color: var(--red); }
+.stat-value.amber { color: var(--amber); }
+.stat-value.green { color: var(--green); }
+.stat-value.cyan { color: var(--accent); }
+
+#verdict {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: auto;
+  padding-left: 24px;
+  text-align: right;
+  line-height: 1.4;
+}
+
+/* ── Results Grid ── */
+#results-grid {
+  display: none;
+  grid-template-columns: 340px 1fr;
+  gap: 24px;
+}
+
+#results-grid.visible { display: grid; animation: fadeInUp 0.35s ease-out 0.05s both; }
+
+/* ── Left: Molecule Panel ── */
+#mol-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+#mol-canvas-wrap {
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+#mol-canvas-wrap img, #mol-canvas-wrap svg {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+#mol-descriptors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.desc-box {
+  padding: 12px 16px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.desc-box:nth-child(2n) { border-right: none; }
+.desc-box:nth-child(n+3) { border-bottom: none; }
+
+.desc-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.desc-value {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* ── Right: Predictions ── */
+#predictions-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+}
+
+.pred-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  gap: 12px;
+  border-left: 3px solid transparent;
+}
+
+.pred-row:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+
+.pred-row.risk-high { border-left-color: var(--red); }
+.pred-row.risk-medium { border-left-color: var(--amber); }
+.pred-row.risk-low { border-left-color: var(--green); }
+
+.pred-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  width: 120px;
+  flex-shrink: 0;
+}
+
+.pred-bar-track {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-card);
+  position: relative;
+  overflow: hidden;
+}
+
+.pred-bar-fill {
+  height: 100%;
+  width: 0;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pred-bar-fill.risk-high { background: var(--red); }
+.pred-bar-fill.risk-medium { background: var(--amber); }
+.pred-bar-fill.risk-low { background: var(--green); }
+
+.pred-pct {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  width: 52px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.pred-pct.risk-high { color: var(--red); }
+.pred-pct.risk-medium { color: var(--amber); }
+.pred-pct.risk-low { color: var(--green); }
+
+.pred-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border: 1px solid;
+  flex-shrink: 0;
+  width: 68px;
+  text-align: center;
+}
+
+.pred-badge.risk-high { color: var(--red); border-color: var(--red); }
+.pred-badge.risk-medium { color: var(--amber); border-color: var(--amber); }
+.pred-badge.risk-low { color: var(--green); border-color: var(--green); }
+
+/* ── Responsive ── */
+@media (max-width: 800px) {
+  #results-grid { grid-template-columns: 1fr; }
+  #mol-panel { max-width: 340px; }
+  #header-meta { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header id="header">
+  <div id="header-left">
+    <span id="wordmark">TOXPREDICT</span>
+    <span id="header-tag">ML Toxicity Analyzer &middot; Tox21 Ensemble</span>
+  </div>
+  <div id="header-right">
+    <div id="rdkit-status">
+      <span id="rdkit-dot"></span>
+      <span id="rdkit-label">RDKit loading&hellip;</span>
+    </div>
+    <div id="header-meta">
+      <span>XGB + LGB + ET Ensemble</span>
+      <span>10 assay targets</span>
+    </div>
+  </div>
+</header>
+
+<!-- ── Main ── -->
+<main id="main">
+
+  <!-- Input Panel -->
+  <section id="input-panel">
+    <div id="input-row">
+      <input
+        type="text"
+        id="smiles-input"
+        placeholder="CCOc1ccc2nc(S(N)(=O)=O)sc2c1"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="SMILES molecular string input"
+      >
+      <button id="analyze-btn" type="button">Analyze</button>
+    </div>
+    <div id="error-msg"></div>
+    <div id="chips-row">
+      <button class="chip" data-smiles="CCOc1ccc2nc(S(N)(=O)=O)sc2c1">Ethoxzolamide</button>
+      <button class="chip" data-smiles="c1ccc2ccccc2c1">Naphthalene</button>
+      <button class="chip" data-smiles="CN1C=NC2=C1C(=O)N(C(=O)N2C)C">Caffeine</button>
+      <button class="chip" data-smiles="O=C1NC(=O)c2ccccc21">Isatoic anhydride</button>
+      <button class="chip" data-smiles="CC(C)(C)c1ccc2occ(CC(=O)Nc3ccccc3F)c2c1">ZINC compound</button>
+    </div>
+    <div id="status-line">Ready</div>
+  </section>
+
+  <!-- Summary Bar -->
+  <section id="summary-bar">
+    <div class="stat-block">
+      <span class="stat-label">High Risk</span>
+      <span class="stat-value red" id="sum-high">0</span>
+    </div>
+    <div class="stat-block">
+      <span class="stat-label">Medium Risk</span>
+      <span class="stat-value amber" id="sum-med">0</span>
+    </div>
+    <div class="stat-block">
+      <span class="stat-label">Low Risk</span>
+      <span class="stat-value green" id="sum-low">0</span>
+    </div>
+    <div class="stat-block">
+      <span class="stat-label">Mean Tox Prob</span>
+      <span class="stat-value cyan" id="sum-mean">0%</span>
+    </div>
+    <div id="verdict"></div>
+  </section>
+
+  <!-- Results Grid -->
+  <section id="results-grid">
+    <!-- Left: Molecule -->
+    <div id="mol-panel">
+      <div id="mol-canvas-wrap"></div>
+      <div id="mol-descriptors">
+        <div class="desc-box">
+          <div class="desc-label">Formula</div>
+          <div class="desc-value" id="desc-formula">&mdash;</div>
+        </div>
+        <div class="desc-box">
+          <div class="desc-label">Mol. Weight</div>
+          <div class="desc-value" id="desc-mw">&mdash;</div>
+        </div>
+        <div class="desc-box">
+          <div class="desc-label">Heavy Atoms</div>
+          <div class="desc-value" id="desc-heavy">&mdash;</div>
+        </div>
+        <div class="desc-box">
+          <div class="desc-label">Rings</div>
+          <div class="desc-value" id="desc-rings">&mdash;</div>
+        </div>
+      </div>
+    </div>
+    <!-- Right: Predictions -->
+    <div id="predictions-panel"></div>
+  </section>
+
+</main>
+
+<script src="https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js"></script>
+<script>
+/* ──────────────────────────────────────
+   ToxPredict — Client Logic
+   ────────────────────────────────────── */
+
+const TARGETS = [
+  'NR-AR', 'NR-AhR', 'NR-Aromatase', 'NR-ER', 'NR-ER-LBD',
+  'SR-ARE', 'SR-ATAD5', 'SR-HSE', 'SR-MMP', 'SR-p53'
+];
+
+const API_URL = 'http://localhost:5000/predict';
+const TIMEOUT_MS = 15000;
+
+/* ── DOM refs ── */
+const $input     = document.getElementById('smiles-input');
+const $btn       = document.getElementById('analyze-btn');
+const $error     = document.getElementById('error-msg');
+const $status    = document.getElementById('status-line');
+const $summary   = document.getElementById('summary-bar');
+const $grid      = document.getElementById('results-grid');
+const $predPanel = document.getElementById('predictions-panel');
+const $molWrap   = document.getElementById('mol-canvas-wrap');
+const $rdkitDot  = document.getElementById('rdkit-dot');
+const $rdkitLbl  = document.getElementById('rdkit-label');
+
+/* ── RDKit ── */
+let RDKit = null;
+
+(async function initRDKit() {
+  try {
+    const mod = await window.initRDKitModule({
+      locateFile: () => 'https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.wasm'
+    });
+    RDKit = mod;
+    $rdkitDot.classList.add('ready');
+    $rdkitLbl.textContent = 'RDKit ready';
+  } catch (e) {
+    console.error('RDKit init failed', e);
+    $rdkitLbl.textContent = 'RDKit unavailable';
+  }
+})();
+
+/* ── Chips ── */
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    $input.value = chip.dataset.smiles;
+    $input.focus();
+  });
+});
+
+/* ── Submit ── */
+$btn.addEventListener('click', runAnalysis);
+$input.addEventListener('keydown', e => {
+  if (e.key === 'Enter') runAnalysis();
+});
+
+async function runAnalysis() {
+  const smiles = $input.value.trim();
+  if (!smiles) return;
+
+  clearError();
+  setStatus('Validating SMILES\u2026');
+  $btn.disabled = true;
+
+  /* Validate with RDKit */
+  let mol = null;
+  if (RDKit) {
+    mol = RDKit.get_mol(smiles);
+    if (!mol || mol.is_valid() === false) {
+      showError('Invalid SMILES string — RDKit could not parse this molecule.');
+      $btn.disabled = false;
+      setStatus('Validation failed');
+      if (mol) mol.delete();
+      return;
+    }
+  }
+
+  /* Render molecule + descriptors */
+  renderMolecule(smiles, mol);
+
+  /* Fetch predictions */
+  let predictions = null;
+  let demoMode = false;
+
+  setStatus('Querying prediction API\u2026');
+
+  try {
+    const resp = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ smiles }),
+      signal: AbortSignal.timeout(TIMEOUT_MS)
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    predictions = await resp.json();
+  } catch (_) {
+    /* Fallback: deterministic demo predictions */
+    demoMode = true;
+    predictions = generateDemoPredictions(smiles);
+  }
+
+  if (mol) mol.delete();
+
+  renderResults(predictions, demoMode);
+  $btn.disabled = false;
+}
+
+/* ── Demo predictions (deterministic hash) ── */
+function hashSmiles(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
+  return h;
+}
+
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    var t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function generateDemoPredictions(smiles) {
+  const h = Math.abs(hashSmiles(smiles));
+  const rng = mulberry32(h);
+  const preds = {};
+  TARGETS.forEach(t => {
+    preds[t] = parseFloat(rng().toFixed(4));
+  });
+  return preds;
+}
+
+/* ── Molecule rendering ── */
+function renderMolecule(smiles, mol) {
+  $molWrap.innerHTML = '';
+
+  if (RDKit && mol && mol.is_valid()) {
+    try {
+      const svg = mol.get_svg_with_highlights(JSON.stringify({
+        width: 320, height: 320
+      }));
+      /* Restyle SVG for dark theme */
+      const styled = svg
+        .replace(/fill:#FFFFFF/gi, 'fill:#111820')
+        .replace(/stroke:#000000/gi, 'stroke:#c9d5e0')
+        .replace(/fill:#000000/gi, 'fill:#c9d5e0');
+      $molWrap.innerHTML = styled;
+    } catch (_) {
+      $molWrap.innerHTML = '<span style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">Render unavailable</span>';
+    }
+
+    /* Descriptors */
+    try {
+      const descRaw = mol.get_descriptors();
+      const desc = JSON.parse(descRaw);
+      document.getElementById('desc-formula').textContent = desc.MolecularFormula || '\u2014';
+      document.getElementById('desc-mw').textContent = desc.exactmw ? parseFloat(desc.exactmw).toFixed(2) : '\u2014';
+      document.getElementById('desc-heavy').textContent = desc.NumHeavyAtoms ?? '\u2014';
+      document.getElementById('desc-rings').textContent = desc.NumRings ?? '\u2014';
+    } catch (_) {
+      setDescriptorsFallback();
+    }
+  } else {
+    $molWrap.innerHTML = '<span style="color:var(--text-muted);font-family:var(--font-mono);font-size:12px">RDKit not available</span>';
+    setDescriptorsFallback();
+  }
+}
+
+function setDescriptorsFallback() {
+  document.getElementById('desc-formula').textContent = '\u2014';
+  document.getElementById('desc-mw').textContent = '\u2014';
+  document.getElementById('desc-heavy').textContent = '\u2014';
+  document.getElementById('desc-rings').textContent = '\u2014';
+}
+
+/* ── Risk classification ── */
+function riskLevel(p) {
+  if (p >= 0.65) return 'high';
+  if (p >= 0.35) return 'medium';
+  return 'low';
+}
+
+function riskLabel(level) {
+  return level.toUpperCase();
+}
+
+/* ── Render results ── */
+function renderResults(predictions, demoMode) {
+  /* Summary */
+  let high = 0, med = 0, low = 0, sum = 0;
+  TARGETS.forEach(t => {
+    const p = predictions[t] ?? 0;
+    sum += p;
+    const r = riskLevel(p);
+    if (r === 'high') high++;
+    else if (r === 'medium') med++;
+    else low++;
+  });
+
+  document.getElementById('sum-high').textContent = high;
+  document.getElementById('sum-med').textContent = med;
+  document.getElementById('sum-low').textContent = low;
+  document.getElementById('sum-mean').textContent = ((sum / TARGETS.length) * 100).toFixed(1) + '%';
+
+  /* Verdict */
+  let verdictText = '';
+  if (high === 0 && med === 0) {
+    verdictText = 'LOW CONCERN \u2014 no high-risk assays detected';
+  } else if (high === 0) {
+    verdictText = 'MILD CONCERN \u2014 ' + med + ' medium-risk assay' + (med > 1 ? 's' : '') + ' detected';
+  } else if (high <= 2) {
+    verdictText = 'MODERATE CONCERN \u2014 ' + high + ' high-risk assay' + (high > 1 ? 's' : '') + ' detected';
+  } else {
+    verdictText = 'HIGH CONCERN \u2014 ' + high + ' high-risk assays detected';
+  }
+  document.getElementById('verdict').textContent = verdictText;
+
+  $summary.classList.add('visible');
+
+  /* Prediction rows */
+  $predPanel.innerHTML = '';
+  TARGETS.forEach((t, i) => {
+    const p = predictions[t] ?? 0;
+    const r = riskLevel(p);
+
+    const row = document.createElement('div');
+    row.className = 'pred-row risk-' + r;
+
+    row.innerHTML =
+      '<span class="pred-name">' + t + '</span>' +
+      '<div class="pred-bar-track"><div class="pred-bar-fill risk-' + r + '" id="bar-' + i + '"></div></div>' +
+      '<span class="pred-pct risk-' + r + '">' + (p * 100).toFixed(1) + '%</span>' +
+      '<span class="pred-badge risk-' + r + '">' + riskLabel(r) + '</span>';
+
+    $predPanel.appendChild(row);
+  });
+
+  $grid.classList.add('visible');
+
+  /* Animate bars with stagger */
+  requestAnimationFrame(() => {
+    TARGETS.forEach((t, i) => {
+      const p = predictions[t] ?? 0;
+      const bar = document.getElementById('bar-' + i);
+      if (bar) {
+        bar.style.transitionDelay = (i * 40) + 'ms';
+        bar.style.width = (p * 100) + '%';
+      }
+    });
+  });
+
+  /* Status */
+  if (demoMode) {
+    setStatus('[DEMO MODE] Server unreachable \u2014 showing deterministic demo predictions');
+  } else {
+    setStatus('Prediction complete \u2014 ' + TARGETS.length + ' targets analyzed');
+  }
+}
+
+/* ── UI helpers ── */
+function showError(msg) {
+  $error.textContent = msg;
+  $error.classList.add('visible');
+  $input.classList.add('error');
+}
+
+function clearError() {
+  $error.textContent = '';
+  $error.classList.remove('visible');
+  $input.classList.remove('error');
+}
+
+function setStatus(msg) {
+  $status.textContent = msg;
+}
+</script>
+</body>
+</html>
