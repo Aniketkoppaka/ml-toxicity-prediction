@@ -83,6 +83,9 @@ Targets with fewer than 300 positives (`NR-AR-LBD`, `NR-PPAR-gamma`) were droppe
 
 ---
 
+## Project Structure
+
+```
 ml-toxicity-prediction/
 │
 ├── app/
