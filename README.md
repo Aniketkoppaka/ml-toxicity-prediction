@@ -24,9 +24,9 @@ ML pipeline that predicts molecular toxicity across **10 Tox21 assay targets** u
 
 ### Evaluation Visualizations
 
-![Per-Target ROC-AUC Bar Chart](ROC-AUC.png)
+![Per-Target ROC-AUC Bar Chart](public/ROC-AUC.png)
 
-![ROC Curves - All Targets](ROC.png)
+![ROC Curves - All Targets](public/ROC.png)
 
 ---
 
@@ -83,38 +83,32 @@ Targets with fewer than 300 positives (`NR-AR-LBD`, `NR-PPAR-gamma`) were droppe
 
 ---
 
-## Project Structure
-
-```
-drug-toxicity-prediction/
+ml-toxicity-prediction/
 │
-├── README.md
-├── requirements.txt
+├── app/
+│   ├── index.html                  ← Standalone HTML frontend
+│   └── server.py                   ← Flask API server
+│
+├── datasets/                       ← Source data for training
+│   ├── tox21.csv
+│   └── 250k_rndm_zinc_drugs_clean_3.csv
 │
 ├── notebooks/
-│   └── toxicity_prediction.ipynb   ← Cell 1 (features) + Cell 2 (training) + Cell 3 (Gradio)
+│   └── toxicity_prediction.ipynb    ← Training and modeling notebook
 │
-├── saved_models/                   ← generated after running Cell 2
-│   ├── ensemble_NR_AR.pkl
-│   ├── ensemble_NR_AhR.pkl
-│   ├── ensemble_NR_Aromatase.pkl
-│   ├── ensemble_NR_ER.pkl
-│   ├── ensemble_NR_ER_LBD.pkl
-│   ├── ensemble_SR_ARE.pkl
-│   ├── ensemble_SR_ATAD5.pkl
-│   ├── ensemble_SR_HSE.pkl
-│   ├── ensemble_SR_MMP.pkl
-│   ├── ensemble_SR_p53.pkl
+├── public/                         ← Assets for documentation
+│   ├── ROC-AUC.png                 ← Eval bar chart
+│   └── ROC.png                     ← ROC curves
+│
+├── saved_models/                   ← Pre-trained ensemble models
+│   ├── ensemble_*.pkl
 │   ├── variance_threshold.pkl
 │   ├── feature_columns.pkl
-│   ├── targets.pkl
-│   └── results.csv
+│   └── targets.pkl
 │
-├── frontend/
-│   ├── app.html                    ← standalone HTML frontend
-│   └── server.py                  ← Flask API server
-│
-└── download*.png                   ← evaluation visualizations
+├── README.md                       ← Project documentation
+├── requirements.txt                ← Dependencies
+└── .gitignore                      ← Excluded files
 ```
 
 ---
@@ -145,8 +139,8 @@ Run Cell 3 in the notebook. A public share link is printed automatically — pas
 ### 5. Launch the HTML frontend (optional)
 ```bash
 pip install flask flask-cors
-python frontend/server.py
-# then open frontend/app.html in your browser
+python app/server.py
+# then open app/index.html in your browser
 ```
 
 The HTML frontend calls `http://localhost:5000/predict`. If the server is unreachable it falls back to deterministic demo predictions so the UI is always usable.
