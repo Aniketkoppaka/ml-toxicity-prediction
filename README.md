@@ -6,21 +6,27 @@ ML pipeline that predicts molecular toxicity across **10 Tox21 assay targets** u
 
 ## Results
 
-> Fill in your actual numbers after training. Example format:
+> Training Results (Total time: ~121.5 min)
 
 | Target | ROC-AUC | Imbalance | LGB Trees | XGB Trees |
 |---|---|---|---|---|
-| SR-ARE | 0.xxxx | 5.2x | — | — |
-| SR-MMP | 0.xxxx | 5.3x | — | — |
-| NR-ER | 0.xxxx | 6.8x | — | — |
-| NR-AhR | 0.xxxx | 7.5x | — | — |
-| SR-p53 | 0.xxxx | 15.0x | — | — |
-| SR-HSE | 0.xxxx | 16.4x | — | — |
-| NR-Aromatase | 0.xxxx | 18.4x | — | — |
-| NR-ER-LBD | 0.xxxx | 18.9x | — | — |
-| NR-AR | 0.xxxx | 22.5x | — | — |
-| SR-ATAD5 | 0.xxxx | 25.8x | — | — |
-| **Mean** | **0.xxxx** | | | |
+| SR-MMP | 0.9185 | 5.3x | 1 | 0 |
+| NR-AhR | 0.9065 | 7.5x | 1 | 0 |
+| SR-p53 | 0.9043 | 14.6x | 1 | 0 |
+| SR-ATAD5 | 0.8900 | 24.5x | 1 | 0 |
+| SR-ARE | 0.8468 | 5.1x | 1 | 0 |
+| SR-HSE | 0.8412 | 15.3x | 1 | 0 |
+| NR-Aromatase | 0.8338 | 17.6x | 1 | 0 |
+| NR-ER-LBD | 0.8323 | 19.5x | 1 | 0 |
+| NR-AR | 0.8205 | 23.5x | 1 | 0 |
+| NR-ER | 0.7557 | 6.9x | 1 | 0 |
+| **Mean** | **0.8550** | | | |
+
+### Evaluation Visualizations
+
+![Per-Target ROC-AUC Bar Chart](ROC-AUC.png)
+
+![ROC Curves - All Targets](ROC.png)
 
 ---
 
@@ -108,9 +114,7 @@ drug-toxicity-prediction/
 │   ├── app.html                    ← standalone HTML frontend
 │   └── server.py                  ← Flask API server
 │
-└── outputs/
-    ├── auc_results.png
-    └── roc_curves.png
+└── download*.png                   ← evaluation visualizations
 ```
 
 ---
