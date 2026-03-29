@@ -130,14 +130,26 @@ def predict():
         # 1. Compute features
         X_feats = compute_features(smiles)
         
-        # 2. Run predictions
+        # 2. Run predictions (with Confidence intervals across the 3 voting estimators)
         predictions = {}
         for target in registry.targets:
-            # ensemble predict_proba returns [P(class=0), P(class=1)]
-            # we want P(class=1)
             clf = registry.models[target]
-            p1 = float(clf.predict_proba(X_feats.values)[:, 1][0])
-            predictions[target] = p1
+            
+            # Since 'clf' is a sklearn VotingClassifier, we can inspect its underlying sub-estimators
+            est_probs = []
+            if hasattr(clf, 'estimators_'):
+                for est in clf.estimators_:
+                    est_probs.append(float(est.predict_proba(X_feats.values)[:, 1][0]))
+            else:
+                est_probs = [float(clf.predict_proba(X_feats.values)[:, 1][0])]
+                
+            mean_prob = float(np.mean(est_probs))
+            std_prob = float(np.std(est_probs)) if len(est_probs) > 1 else 0.0
+            
+            predictions[target] = {
+                "mean": mean_prob,
+                "std": std_prob
+            }
             
         return jsonify(predictions)
         
@@ -147,6 +159,106 @@ def predict():
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Server error during prediction'}), 500
+
+# -------------------------------------------------------------
+# FEATURE: XAI Substructure Token Highlighting
+# -------------------------------------------------------------
+TOXICOPHORES = {
+    'Nitro': Chem.MolFromSmarts('[N+](=O)[O-]'),
+    'Aniline_like': Chem.MolFromSmarts('aN'),
+    'Michael_Acceptor': Chem.MolFromSmarts('C=C-C(=O)'),
+    'Epoxide': Chem.MolFromSmarts('C1OC1'),
+    'Thiourea': Chem.MolFromSmarts('C(=S)(N)N'),
+    'Hydrazine': Chem.MolFromSmarts('NN'),
+    'Alkyl_Halide_Alert': Chem.MolFromSmarts('[CX4][F,Cl,Br,I]'),
+    'Polycyclic_Aromatic': Chem.MolFromSmarts('a1aa2aaaa2a1'),
+    'Phenol': Chem.MolFromSmarts('c1ccccc1O'),
+    'Sulfonamide': Chem.MolFromSmarts('S(=O)(=O)N')
+}
+
+@app.route('/explain', methods=['POST'])
+def explain():
+    try:
+        data = request.get_json(force=True)
+        smiles = data.get('smiles', '').strip()
+        mol = Chem.MolFromSmiles(smiles)
+        if not mol:
+            return jsonify({'error': 'Invalid SMILES'}), 400
+            
+        matches = []
+        found_names = []
+        
+        for name, patt in TOXICOPHORES.items():
+            if patt and mol.HasSubstructMatch(patt):
+                found_names.append(name)
+                for match_tuple in mol.GetSubstructMatches(patt):
+                    matches.extend(match_tuple)
+                    
+        return jsonify({
+            "toxicophores_found": found_names,
+            "highlight_atoms": list(set(matches))
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# -------------------------------------------------------------
+# FEATURE: Batch CSV Processing Endpoint
+# -------------------------------------------------------------
+import io
+import csv
+@app.route('/predict_batch', methods=['POST'])
+def predict_batch():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+            
+        file = request.files['file']
+        if not file.filename.endswith('.csv'):
+            return jsonify({'error': 'Only .csv files supported'}), 400
+            
+        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+        csv_input = csv.DictReader(stream)
+        
+        # Check if 'smiles' column exists (any case)
+        headers = csv_input.fieldnames
+        smiles_col = next((h for h in headers if h.lower() == 'smiles'), None)
+        if not smiles_col:
+            return jsonify({'error': 'CSV must contain a "smiles" column'}), 400
+            
+        results = []
+        for row in csv_input:
+            smi = row[smiles_col]
+            try:
+                X_feats = compute_features(smi)
+                row_res = row.copy()
+                for target in registry.targets:
+                    clf = registry.models[target]
+                    p1 = float(clf.predict_proba(X_feats.values)[:, 1][0])
+                    row_res[target] = round(p1, 4)
+            except Exception:
+                # If valid smiles parsing fails, mark explicitly
+                for target in registry.targets:
+                    row_res[target] = "Error"
+                    
+            results.append(row_res)
+            
+        # Write back to CSV string
+        out_stream = io.StringIO()
+        out_headers = headers + registry.targets
+        writer = csv.DictWriter(out_stream, fieldnames=out_headers)
+        writer.writeheader()
+        writer.writerows(results)
+        
+        # Give back as standard csv download payload
+        csv_text = out_stream.getvalue()
+        from flask import make_response
+        response = make_response(csv_text)
+        response.headers["Content-Disposition"] = "attachment; filename=toxpredict_results.csv"
+        response.headers["Content-Type"] = "text/csv"
+        return response
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Load on startup to warm cache if run directly

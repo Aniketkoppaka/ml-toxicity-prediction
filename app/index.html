@@ -196,6 +196,20 @@ body {
 #analyze-btn:active { opacity: 0.7; }
 #analyze-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.secondary-btn {
+  height: 42px;
+  padding: 0 16px;
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+}
+.secondary-btn:hover { border-color: var(--accent); color: var(--accent); }
+
 #error-msg {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -451,6 +465,19 @@ body {
   #mol-panel { max-width: 340px; }
   #header-meta { display: none; }
 }
+
+@media print {
+  body { background: #fff !important; color: #000 !important; background-image: none !important; }
+  #header, #input-panel { display: none !important; }
+  #results-grid { display: grid !important; }
+  .pred-bar-track { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pred-bar-fill.risk-high { background: #d32f2f !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pred-bar-fill.risk-medium { background: #f57f17 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pred-bar-fill.risk-low { background: #388e3c !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  #mol-canvas-wrap { background: #fff !important; }
+  #mol-canvas-wrap svg { filter: invert(1); } /* Basic invert so white SVG shows black lines */
+}
 </style>
 </head>
 <body>
@@ -488,6 +515,9 @@ body {
         aria-label="SMILES molecular string input"
       >
       <button id="analyze-btn" type="button">Analyze</button>
+      <input type="file" id="batch-input" accept=".csv" style="display:none">
+      <button id="batch-btn" type="button" class="secondary-btn">Batch CSV</button>
+      <button id="pdf-btn" type="button" class="secondary-btn" style="margin-left: auto;">Export Report</button>
     </div>
     <div id="error-msg"></div>
     <div id="chips-row">
@@ -568,6 +598,9 @@ const TIMEOUT_MS = 15000;
 /* ── DOM refs ── */
 const $input     = document.getElementById('smiles-input');
 const $btn       = document.getElementById('analyze-btn');
+const $batchBtn  = document.getElementById('batch-btn');
+const $batchIn   = document.getElementById('batch-input');
+const $pdfBtn    = document.getElementById('pdf-btn');
 const $error     = document.getElementById('error-msg');
 const $status    = document.getElementById('status-line');
 const $summary   = document.getElementById('summary-bar');
@@ -602,6 +635,38 @@ document.querySelectorAll('.chip').forEach(chip => {
   });
 });
 
+/* ── Secondary Features ── */
+$pdfBtn.addEventListener('click', () => { window.print(); });
+
+$batchBtn.addEventListener('click', () => $batchIn.click());
+$batchIn.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  
+  setStatus('Processing CSV batch...');
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  try {
+    const resp = await fetch('http://localhost:5000/predict_batch', {
+      method: 'POST', body: formData
+    });
+    if(!resp.ok) throw new Error('API Error');
+    const blob = await resp.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'toxpredict_results.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setStatus('Batch processed and downloaded.');
+  } catch(err) {
+    showError("Batch prediction failed.");
+    setStatus('Batch error');
+  }
+});
+
 /* ── Submit ── */
 $btn.addEventListener('click', runAnalysis);
 $input.addEventListener('keydown', e => {
@@ -629,33 +694,52 @@ async function runAnalysis() {
     }
   }
 
-  /* Render molecule + descriptors */
-  renderMolecule(smiles, mol);
-
-  /* Fetch predictions */
+  /* Fetch predictions & highlights concurrently */
   let predictions = null;
+  let highlights = [];
+  let found_toxics = [];
   let demoMode = false;
 
   setStatus('Querying prediction API\u2026');
 
   try {
-    const resp = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ smiles }),
-      signal: AbortSignal.timeout(TIMEOUT_MS)
-    });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    predictions = await resp.json();
+    const [predResp, explResp] = await Promise.all([
+      fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ smiles }),
+        signal: AbortSignal.timeout(TIMEOUT_MS)
+      }),
+      fetch('http://localhost:5000/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ smiles })
+      }).catch(() => ({ok: false}))
+    ]);
+    
+    if (!predResp.ok) throw new Error('HTTP ' + predResp.status);
+    predictions = await predResp.json();
+    
+    if (explResp.ok) {
+        const explData = await explResp.json();
+        highlights = explData.highlight_atoms || [];
+        found_toxics = explData.toxicophores_found || [];
+    }
   } catch (_) {
-    /* Fallback: deterministic demo predictions */
     demoMode = true;
     predictions = generateDemoPredictions(smiles);
   }
 
+  /* Render molecule + descriptors */
+  renderMolecule(smiles, mol, highlights);
+
   if (mol) mol.delete();
 
   renderResults(predictions, demoMode);
+  if(found_toxics.length > 0) {
+      document.getElementById('verdict').innerHTML += '<br><span style="color:var(--amber)">Alert: Contains ' + found_toxics.join(', ') + '</span>';
+  }
+  
   $btn.disabled = false;
 }
 
@@ -682,20 +766,25 @@ function generateDemoPredictions(smiles) {
   const rng = mulberry32(h);
   const preds = {};
   TARGETS.forEach(t => {
-    preds[t] = parseFloat(rng().toFixed(4));
+    preds[t] = {
+      mean: parseFloat(rng().toFixed(4)),
+      std: parseFloat((rng() * 0.1).toFixed(4))
+    };
   });
   return preds;
 }
 
 /* ── Molecule rendering ── */
-function renderMolecule(smiles, mol) {
+function renderMolecule(smiles, mol, highlights = []) {
   $molWrap.innerHTML = '';
 
   if (RDKit && mol && mol.is_valid()) {
     try {
-      const svg = mol.get_svg_with_highlights(JSON.stringify({
-        width: 320, height: 320
-      }));
+      const details = {
+         width: 320, height: 320,
+         atoms: highlights
+      };
+      const svg = mol.get_svg_with_highlights(JSON.stringify(details));
       /* Restyle SVG for dark theme */
       const styled = svg
         .replace(/fill:#FFFFFF/gi, 'fill:#111820')
@@ -746,7 +835,9 @@ function renderResults(predictions, demoMode) {
   /* Summary */
   let high = 0, med = 0, low = 0, sum = 0;
   TARGETS.forEach(t => {
-    const p = predictions[t] ?? 0;
+    const rawVal = predictions[t] ?? {mean: 0, std: 0};
+    const p = typeof rawVal === 'number' ? rawVal : rawVal.mean;
+    
     sum += p;
     const r = riskLevel(p);
     if (r === 'high') high++;
@@ -762,22 +853,25 @@ function renderResults(predictions, demoMode) {
   /* Verdict */
   let verdictText = '';
   if (high === 0 && med === 0) {
-    verdictText = 'LOW CONCERN \u2014 no high-risk assays detected';
+    verdictText = 'LOW CONCERN <br> <span style="font-size:10px">No high-risk assays detected</span>';
   } else if (high === 0) {
-    verdictText = 'MILD CONCERN \u2014 ' + med + ' medium-risk assay' + (med > 1 ? 's' : '') + ' detected';
+    verdictText = 'MILD CONCERN <br> <span style="font-size:10px">' + med + ' medium-risk assays detected</span>';
   } else if (high <= 2) {
-    verdictText = 'MODERATE CONCERN \u2014 ' + high + ' high-risk assay' + (high > 1 ? 's' : '') + ' detected';
+    verdictText = 'MODERATE CONCERN <br> <span style="font-size:10px">' + high + ' high-risk assays detected</span>';
   } else {
-    verdictText = 'HIGH CONCERN \u2014 ' + high + ' high-risk assays detected';
+    verdictText = 'HIGH CONCERN <br> <span style="font-size:10px">' + high + ' high-risk assays detected</span>';
   }
-  document.getElementById('verdict').textContent = verdictText;
+  document.getElementById('verdict').innerHTML = verdictText;
 
   $summary.classList.add('visible');
 
   /* Prediction rows */
   $predPanel.innerHTML = '';
   TARGETS.forEach((t, i) => {
-    const p = predictions[t] ?? 0;
+    const rawVal = predictions[t] ?? {mean: 0, std: 0};
+    const p = typeof rawVal === 'number' ? rawVal : rawVal.mean;
+    const s = typeof rawVal === 'number' ? 0 : rawVal.std;
+    
     const r = riskLevel(p);
 
     const row = document.createElement('div');
@@ -786,7 +880,7 @@ function renderResults(predictions, demoMode) {
     row.innerHTML =
       '<span class="pred-name">' + t + '</span>' +
       '<div class="pred-bar-track"><div class="pred-bar-fill risk-' + r + '" id="bar-' + i + '"></div></div>' +
-      '<span class="pred-pct risk-' + r + '">' + (p * 100).toFixed(1) + '%</span>' +
+      '<span class="pred-pct risk-' + r + '">' + (p * 100).toFixed(1) + '% <br><span style="font-size:8px;color:var(--text-secondary);font-weight:400">±' + (s * 100).toFixed(1) + '%</span></span>' +
       '<span class="pred-badge risk-' + r + '">' + riskLabel(r) + '</span>';
 
     $predPanel.appendChild(row);
@@ -797,7 +891,9 @@ function renderResults(predictions, demoMode) {
   /* Animate bars with stagger */
   requestAnimationFrame(() => {
     TARGETS.forEach((t, i) => {
-      const p = predictions[t] ?? 0;
+      const rawVal = predictions[t] ?? {mean: 0, std: 0};
+      const p = typeof rawVal === 'number' ? rawVal : rawVal.mean;
+      
       const bar = document.getElementById('bar-' + i);
       if (bar) {
         bar.style.transitionDelay = (i * 40) + 'ms';
