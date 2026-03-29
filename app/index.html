@@ -390,9 +390,10 @@ body {
 .pred-row {
   display: flex;
   align-items: center;
-  padding: 10px 16px;
+  padding: 8px 16px;
   gap: 12px;
   border-left: 3px solid transparent;
+  flex: 1;
 }
 
 .pred-row:not(:last-child) {
@@ -434,9 +435,10 @@ body {
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
-  width: 52px;
+  width: 96px;
   text-align: right;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .pred-pct.risk-high { color: var(--red); }
@@ -880,7 +882,7 @@ function renderResults(predictions, demoMode) {
     row.innerHTML =
       '<span class="pred-name">' + t + '</span>' +
       '<div class="pred-bar-track"><div class="pred-bar-fill risk-' + r + '" id="bar-' + i + '"></div></div>' +
-      '<span class="pred-pct risk-' + r + '">' + (p * 100).toFixed(1) + '% <br><span style="font-size:8px;color:var(--text-secondary);font-weight:400">±' + (s * 100).toFixed(1) + '%</span></span>' +
+      '<span class="pred-pct risk-' + r + '">' + (p * 100).toFixed(1) + '% <span style="font-size:8.5px;color:var(--text-secondary);font-weight:400;margin-left:2px;display:inline-block;width:34px;text-align:left">±' + (s * 100).toFixed(1) + '%</span></span>' +
       '<span class="pred-badge risk-' + r + '">' + riskLabel(r) + '</span>';
 
     $predPanel.appendChild(row);
